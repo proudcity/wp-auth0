@@ -58,7 +58,8 @@ class WP_Auth0_Routes {
 		$cdn = $this->a0_options->get( 'auth0js-cdn' );
 		$client_id = $this->a0_options->get( 'client_id' );
 		$domain = $this->a0_options->get( 'domain' );
-		$redirect_uri = site_url( 'index.php?auth0=1', $this->a0_options->get( 'force_https_callback' ) );
+		$protocol = $this->a0_options->get( 'force_https_callback', FALSE ) ? 'https' : null;
+		$redirect_uri = $this->a0_options->get_wp_auth0_url( $protocol );
 		echo <<<EOT
 		<!DOCTYPE html>
 		<html>
@@ -144,7 +145,7 @@ EOT;
 			$user = wp_authenticate( $username, $password );
 
 			if ( $user instanceof WP_Error ) {
-				WP_Auth0_ErrorManager::insert_auth0_error( 'migration_ws_login', $user );
+				WP_Auth0_ErrorManager::insert_auth0_error( __METHOD__ . ' => wp_authenticate()', $user );
 				$user = array( 'error' => 'invalid credentials' );
 			} else {
 				if ( $user instanceof WP_User ) {
@@ -155,7 +156,7 @@ EOT;
 			}
 		}
 		catch( Exception $e) {
-			WP_Auth0_ErrorManager::insert_auth0_error( 'migration_ws_login', $e );
+			WP_Auth0_ErrorManager::insert_auth0_error( __METHOD__, $e );
 			$user = array('error' => $e->getMessage());
 		}
 
@@ -204,7 +205,7 @@ EOT;
 			}
 
 			if ($user instanceof WP_Error) {
-				WP_Auth0_ErrorManager::insert_auth0_error( 'migration_ws_get_user', $user );
+				WP_Auth0_ErrorManager::insert_auth0_error( __METHOD__, $user->get_error_message() );
 				$user = array('error' => 'invalid credentials');
 			} else {
 
@@ -217,7 +218,7 @@ EOT;
 			}
 		}
 		catch(Exception $e) {
-			WP_Auth0_ErrorManager::insert_auth0_error( 'migration_ws_get_user', $e );
+			WP_Auth0_ErrorManager::insert_auth0_error( __METHOD__, $e );
 			$user = array('error' => $e->getMessage());
 		}
 

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: PLUGIN_NAME
  * Description: PLUGIN_DESCRIPTION
- * Version: 3.5.1
+ * Version: 3.5.2
  * Author: Auth0
  * Author URI: https://auth0.com
  */
@@ -11,7 +11,7 @@ define( 'WPA0_PLUGIN_DIR', trailingslashit( plugin_dir_path( __FILE__ ) ) );
 define( 'WPA0_PLUGIN_URL', trailingslashit( plugin_dir_url( __FILE__ ) ) );
 define( 'WPA0_LANG', 'wp-auth0' ); // deprecated; do not use for translations
 define( 'AUTH0_DB_VERSION', 17 );
-define( 'WPA0_VERSION', '3.5.1' );
+define( 'WPA0_VERSION', '3.5.2' );
 define( 'WPA0_CACHE_GROUP', 'wp_auth0' );
 
 /**
@@ -51,7 +51,7 @@ class WP_Auth0 {
 
 		add_action( 'activated_plugin', array( $this, 'on_activate_redirect' ) );
 
-		add_filter( 'get_avatar' , array( $this, 'my_custom_avatar') , 1 , 5 );
+		add_filter( 'get_avatar' , array( $this, 'filter_get_avatar') , 1 , 5 );
 
 		// Add an action to append a stylesheet for the login page.
 		add_action( 'login_enqueue_scripts', array( $this, 'render_auth0_login_css' ) );
@@ -159,17 +159,59 @@ class WP_Auth0 {
 		}
 	}
 
-	function my_custom_avatar( $avatar, $id_or_email, $size, $default, $alt ) {
-		$auth0Profile = get_auth0userinfo($id_or_email);
-
-		if ($this->a0_options->get('override_wp_avatars')) {
-			if ($auth0Profile && isset($auth0Profile->picture)) {
-				$avatar_url = $auth0Profile->picture;
-				$avatar = "<img alt='{$alt}' src='{$avatar_url}' class='avatar avatar-{$size} photo' height='{$size}' width='{$size}' />";
-			}
+	/**
+	 * Filter the avatar to use the Auth0 profile image
+	 *
+	 * @param string $avatar - avatar HTML
+	 * @param int|string|WP_User|WP_Comment|WP_Post $id_or_email - user identifier
+	 * @param int $size - width and height of avatar
+	 * @param string $default - what to do if nothing
+	 * @param string $alt - alt text for the <img> tag
+	 *
+	 * @return string
+	 */
+	function filter_get_avatar( $avatar, $id_or_email, $size, $default, $alt ) {
+		if ( ! $this->a0_options->get( 'override_wp_avatars' ) ) {
+			return $avatar;
 		}
 
-		return $avatar;
+		$user_id = null;
+
+		if ( $id_or_email instanceof WP_User ) {
+			$user_id = $id_or_email->ID;
+		} elseif ( $id_or_email instanceof WP_Comment ) {
+			$user_id = $id_or_email->user_id;
+		} elseif ( $id_or_email instanceof WP_Post ) {
+			$user_id = $id_or_email->post_author;
+		} elseif ( is_email( $id_or_email ) ) {
+			$maybe_user = get_user_by( 'email', $id_or_email );
+
+			if ( $maybe_user instanceof WP_User ) {
+				$user_id = $maybe_user->ID;
+			}
+		} elseif ( is_numeric( $id_or_email ) ) {
+			$user_id = absint( $id_or_email );
+		}
+
+
+		if ( ! $user_id ) {
+			return $avatar;
+		}
+
+		$auth0Profile = get_auth0userinfo( $user_id );
+
+		if ( ! $auth0Profile || empty( $auth0Profile->picture ) ) {
+			return $avatar;
+		}
+
+		return sprintf(
+			'<img alt="%s" src="%s" class="avatar avatar-%d photo avatar-auth0" width="%d" height="%d"/>',
+			esc_attr( $alt ),
+			esc_url( $auth0Profile->picture ),
+			absint( $size ),
+			absint( $size ),
+			absint( $size )
+		);
 	}
 
 	function on_activate_redirect( $plugin ) {
@@ -202,7 +244,6 @@ class WP_Auth0 {
 		$qvars[] = 'a0_action';
 		$qvars[] = 'auth0';
 		$qvars[] = 'code';
-		$qvars[] = 'state';
 		return $qvars;
 	}
 
@@ -352,7 +393,20 @@ class WP_Auth0 {
 	public static function uninstall() {
 		$a0_options = WP_Auth0_Options::Instance();
 		$a0_options->delete();
+
     delete_option( 'auth0_db_version' );
+    delete_option( 'auth0_error_log' );
+
+    delete_option( 'widget_wp_auth0_popup_widget' );
+    delete_option( 'widget_wp_auth0_widget' );
+    delete_option( 'widget_wp_auth0_social_amplification_widget' );
+
+    delete_option( 'wp_auth0_client_grant_failed' );
+    delete_option( 'wp_auth0_client_grant_success' );
+    delete_option( 'wp_auth0_grant_types_failed' );
+    delete_option( 'wp_auth0_grant_types_success' );
+
+		delete_transient('WP_Auth0_JWKS_cache');
 	}
 
 	private function autoloader( $class ) {
@@ -435,6 +489,15 @@ if ( ! function_exists( 'get_auth0_curatedBlogName' ) ) {
 	function get_auth0_curatedBlogName() {
 
     $name = get_bloginfo( 'name' );
+
+    // WordPress can have a blank site title, which will cause initial client creation to fail
+    if ( empty( $name ) ) {
+	    $name = parse_url( home_url(), PHP_URL_HOST );
+
+	    if ( $port = parse_url( home_url(), PHP_URL_PORT ) ) {
+		    $name .= ':' . $port;
+	    }
+    }
 
     $name = preg_replace("/[^A-Za-z0-9 ]/", '', $name);
     $name = preg_replace("/\s+/", ' ', $name);

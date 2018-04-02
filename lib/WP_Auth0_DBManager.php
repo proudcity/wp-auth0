@@ -145,9 +145,9 @@ class WP_Auth0_DBManager {
 			// Update Client
 			if (!empty($client_id) && !empty($domain)) {
 				$payload = array(
-					"cross_origin_auth" => true,
-					"cross_origin_loc" => site_url('index.php?auth0fallback=1','https'),
-					"web_origins" => ( home_url() === site_url() ? array( home_url() ) : array( home_url(), site_url() ) )
+					'cross_origin_auth' => true,
+					'cross_origin_loc' => $options->get_cross_origin_loc(),
+					'web_origins' => $options->get_web_origins(),
 				);
 				WP_Auth0_Api_Client::update_client($domain, $app_token, $client_id, $sso, $payload);
 				$options->set('client_signing_algorithm', 'HS256');
@@ -199,14 +199,14 @@ class WP_Auth0_DBManager {
 				$payload = array(
 					'app_type' => 'regular_web',
 					'callbacks' => array(
-						site_url( 'index.php?auth0=1' ),
+						$options->get_wp_auth0_url(),
 						wp_login_url()
 					),
 
 					// Duplicate of DB version 15 upgrade to account for site_url() changes
 					'cross_origin_auth' => true,
-					'cross_origin_loc' => site_url('index.php?auth0fallback=1','https'),
-					'web_origins' => ( home_url() === site_url() ? array( home_url() ) : array( home_url(), site_url() ) ),
+					'cross_origin_loc' => $options->get_cross_origin_loc(),
+					'web_origins' => $options->get_web_origins(),
 				);
 
 				// Update the WP-created client
@@ -221,6 +221,14 @@ class WP_Auth0_DBManager {
 			if ( $client_grant_created ) {
 				delete_option( 'wp_auth0_client_grant_failed' );
 				update_option( 'wp_auth0_client_grant_success', 1 );
+
+				if ( 409 !== $client_grant_created[ 'statusCode' ] ) {
+					WP_Auth0_ErrorManager::insert_auth0_error(
+						__METHOD__,
+						'Client Grant has been successfully created!'
+					);
+				}
+
 			} else {
 				WP_Auth0_ErrorManager::insert_auth0_error( __METHOD__, sprintf(
 					__( 'Unable to automatically create Client Grant. Please go to your Auth0 Dashboard '
@@ -392,7 +400,7 @@ class WP_Auth0_DBManager {
 		if ( is_null( $userRows ) ) {
 			return;
 		} elseif ( $userRows instanceof WP_Error ) {
-			WP_Auth0_ErrorManager::insert_auth0_error( 'migrate_users_data', $userRows );
+			WP_Auth0_ErrorManager::insert_auth0_error( __METHOD__, $userRows );
 			return;
 		}
 
@@ -425,7 +433,7 @@ class WP_Auth0_DBManager {
 		$results = get_users( $query );
 
 		if ( $results instanceof WP_Error ) {
-			WP_Auth0_ErrorManager::insert_auth0_error( 'findAuth0User', $userRow );
+			WP_Auth0_ErrorManager::insert_auth0_error( __METHOD__, $results->get_error_message() );
 			return array();
 		}
 
